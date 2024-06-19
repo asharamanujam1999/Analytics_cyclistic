@@ -1,0 +1,195 @@
+---
+title: "Analysis"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-06-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Function for top 3 strings in terms of frequency
+```{r}
+top_3_strings <- function(strings) {
+  tbl <- sort(table(strings), decreasing = TRUE)
+  names(tbl)[1:min(3, length(tbl))]
+} 
+```
+
+
+# Data Analysis
+```{r}
+#setwd("Portfolio")
+library(tidyverse)
+q1_2019 <- read.csv("./Divvy_Trips_2019_Q1.csv")
+q2_2019 <- read.csv("./Divvy_Trips_2019_Q2.csv")
+q3_2019 <- read.csv("./Divvy_Trips_2019_Q3.csv")
+q4_2019 <- read.csv("./Divvy_Trips_2019_Q4.csv")
+
+
+col_list <- colnames(q1_2019)
+colnames(q2_2019) <-col_list
+colnames(q3_2019) <-col_list
+colnames(q4_2019) <-col_list
+
+data <- rbind(q1_2019,q2_2019,q3_2019,q4_2019)
+data <- transform(data,tripduration = str_replace(tripduration, ",", ""))
+data <- transform(data,start_time = ymd_hms(start_time))
+data <- transform(data,end_time = ymd_hms(end_time))
+
+data <- transform(data,tripduration = as.numeric(difftime(data$end_time,data$start_time)))
+data <- mutate(data,Day_week = weekdays(start_time))
+data <- mutate(data,Start_hour = hour(start_time))
+data <- mutate(data,Start_month = month(start_time))
+data <-filter(data,tripduration>0)
+data <-filter(data,from_station_name!="HQ QR")
+data["usertype"][data["usertype"] == "Customer"] <- "Casual"
+data["usertype"][data["usertype"] == "Subscriber"] <- "Annual"
+data <- mutate(data,route = paste(from_station_name," to ",to_station_name))
+```
+
+# Analysis
+```{r}
+User_type <- data %>%
+  group_by(usertype) %>%
+  summarise(count = n(),Average_trip_duration = mean(tripduration),max_trip_duration = max(tripduration),Day_max = top_3_strings(Day_week)[1] ,fromstation_1 = top_3_strings(from_station_name)[1],fromstation_2 = top_3_strings(from_station_name)[2],fromstation_3 = top_3_strings(from_station_name)[3],
+            tostation_1 = top_3_strings(to_station_name)[1],tostation_2 = top_3_strings(to_station_name)[2],tostation_3 = top_3_strings(to_station_name)[3],
+            route_1 = top_3_strings(route)[1],route_2 = top_3_strings(route)[2],route_3 = top_3_strings(route)[3]) 
+write.csv(User_type, "Analysis_summary_stats.csv")
+User_type_top3 <- data %>%
+  group_by(usertype,from_station_name) %>%
+  summarise(count = n())
+```
+
+
+## Start time
+```{r}
+Start_time <- data %>%
+  group_by(usertype, Start_hour) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  arrange(usertype)
+
+ggplot(data) +
+  geom_histogram(mapping = aes(x=Start_hour),fill="blue",binwidth = 1)+
+  facet_wrap(~usertype, scales = "free")+theme_bw()+
+  labs(title = "Number of trips vs start hour",x = "Start hour",y="Number of trips")
+```
+
+
+
+
+
+## Day of start
+
+```{r}
+Day_of_start <- data %>%
+  group_by(usertype, Day_week) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  arrange(usertype, desc(count))
+
+
+ggplot(Day_of_start, aes(x="", y=count/sum(count)*100, fill=Day_week)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~usertype, scales = "free")+theme_bw()+theme_void() +
+  theme(axis.text = element_blank(),  # Remove counts
+        axis.ticks = element_blank(), # Remove axis ticks
+        panel.grid = element_blank(), # Remove grid lines
+        panel.background = element_blank(), # Remove background
+        axis.title = element_blank())  # Remove axis title 
+```
+
+
+
+## Month of start
+
+```{r}
+Start_month <- data %>%
+  group_by(usertype, Start_month) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  arrange(usertype, desc(count))
+
+
+ggplot(data) +
+  geom_histogram(mapping = aes(x=Start_month),fill="blue")+
+  facet_wrap(~usertype, scales = "free")+theme_bw()+
+  labs(title = "Number of trips vs month",x = "Month",y="Number of trips")+scale_x_continuous(breaks = c(1, 2,3,4,5,6,7,8,9,10,11,12))
+
+```
+
+
+
+## Trip duration
+
+```{r}
+p<-ggplot(data) +
+  geom_histogram(mapping = aes(x=tripduration),fill="blue",binwidth = 0.05)+scale_x_log10()+theme_bw()+
+  facet_wrap(~usertype, scales = "free")+labs(title = "Number of trips vs trip duration",x = "Trip duration in minutes(log10 scale)",y="Number of trips") 
+
+ggplot(data) +
+  geom_histogram(mapping = aes(x=tripduration),fill="blue",binwidth = 0.05)+scale_x_log10()+theme_bw()+
+  facet_wrap(~usertype, scales = "free")+labs(title = "Number of trips vs trip duration",x = "Trip duration in minutes(log10 scale)",y="Number of trips") 
+
+trip_duration_data <- ggplot_build(p)$data[[1]]
+trip_duration_data <- mutate(trip_duration_data,x_real_min = 10^(xmin),x_real_max = 10^(xmax))
+```
+
+
+
+## Average Trip duration per month
+
+```{r}
+avgdur_month <- data %>%
+  group_by(usertype, Start_month) %>%
+  summarise(avg_dur = mean(tripduration)) %>%
+  ungroup() %>%
+  arrange(usertype)
+
+
+ggplot(avgdur_month) +
+  geom_bar(mapping = aes(x=Start_month,y=avg_dur),fill="blue",stat = "identity")+theme_bw()+scale_x_continuous(breaks = c(1, 2,3,4,5,6,7,8,9,10,11,12))+
+  facet_wrap(~usertype, scales = "free")+labs(title = "Average trip duration for each month",x = "Month",y="Average trip duration(minutes)") 
+```
+
+
+
+
+## Average Trip duration per hour
+
+```{r}
+avgdur_hour <- data %>%
+  group_by(usertype, Start_hour) %>%
+  summarise(avg_dur = mean(tripduration)) %>%
+  ungroup() %>%
+  arrange(usertype)
+
+
+ggplot(avgdur_hour) +
+  geom_bar(mapping = aes(x=Start_hour,y=avg_dur),fill="blue",stat = "identity")+theme_bw()+
+  facet_wrap(~usertype, scales = "free")+labs(title = "Average trip duration for each start hour",x = "Start hour",y="Average trip duration(minutes)") 
+```
+
+
+
+## Average Trip duration per day of week
+```{r}
+avgdur_day <- data %>%
+  group_by(usertype, Day_week) %>%
+  summarise(avg_dur = mean(tripduration)) %>%
+  ungroup() %>%
+  arrange(usertype)
+
+avgdur_day$Day_week <- factor(avgdur_day$Day_week,levels = c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+ggplot(avgdur_day ) +
+  geom_bar(mapping = aes(x=Day_week,y=avg_dur),fill="blue",stat = "identity")+theme_bw()+
+  facet_wrap(~usertype, scales = "free")+labs(title = "Average trip duration for each day",x = "Day",y="Average trip duration(minutes)") 
+```
+
+
+
